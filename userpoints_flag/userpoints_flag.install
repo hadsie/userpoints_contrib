@@ -1,0 +1,15 @@
+<?php
+// $Id$
+
+/**
+ * Implements hook_uninstall().
+ */
+function userpoints_flag_uninstall() {
+  variable_del('userpoints_flag_moderation');
+  variable_del('userpoints_flag_vote');
+  variable_del('userpoints_flag_author_node_vote');
+  variable_del('userpoints_flag_author_comment_vote');
+  variable_del('userpoints_flag_daily_threshold');
+
+  // @TODO: Should we delete all flag related points too?
+}

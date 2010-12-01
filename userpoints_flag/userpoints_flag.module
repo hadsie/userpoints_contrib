@@ -1,0 +1,124 @@
+<?php
+// $Id$
+
+/**
+ * @file
+ * Userpoints flag module for Drupal 7.x
+ * Allows users to get points for flagging content (as well as the authors
+ * who's content was flagged).
+ */
+
+/**
+ * Implements hook_userpoints().
+ */
+function userpoints_flag_userpoints($op, $params = array()) {
+  switch ($op) {
+    case 'setting':
+      $form['userpoints_flag'] = array(
+        '#type' => 'fieldset',
+        '#title' => t('Flag settings'),
+        '#collapsible' => TRUE,
+        '#collapsed' => TRUE,
+        '#group' => 'settings_additional',
+      );
+    
+      $form['userpoints_flag']['userpoints_flag_moderation'] = array(
+        '#type' => 'checkbox',
+        '#title' => t('Moderate votes'),
+        '#default_value' => variable_get('userpoints_flag_moderation', 0),
+        '#description' => t('Moderate User Points earned from votes.'),
+      );
+    
+      $form['userpoints_flag']['userpoints_flag_vote'] = array(
+        '#type' => 'textfield',
+        '#title' => t('!Points for flag', userpoints_translation()),
+        '#default_value' => variable_get('userpoints_flag_vote', 1),
+      );
+    
+      $form['userpoints_flag']['userpoints_flag_author_node_vote'] = array(
+        '#type' => 'textfield',
+        '#title' => t('!Points to node author', userpoints_translation()),
+        '#default_value' => variable_get('userpoints_flag_author_node_vote', 0),
+        '#description' => t('Select 0 to ignore.'),
+      );	
+      
+      $form['userpoints_flag']['userpoints_flag_author_comment_vote'] = array(
+        '#type'          => 'textfield',
+        '#title' => t('!Points to comment author', userpoints_translation()),
+        '#default_value' => variable_get('userpoints_flag_author_comment_vote', 0),
+        '#description' => t('Select 0 to ignore.'),
+      );	
+	
+      $form['userpoints_flag']['userpoints_flag_daily_threshold'] = array(
+        '#type' => 'select',
+        '#title' => t('Daily threshold'),
+        '#options' => drupal_map_assoc(array(0, 1, 2, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50)),
+        '#default_value' => variable_get('userpoints_flag_daily_threshold', 0),
+        '#description' => t('The maximum number of votes -- that will earn User Points -- in a 24-hour period.<br />Select 0 to ignore.'),
+      );
+
+      return $form;
+  }
+}
+
+/**
+ * Implementation of hook_flag().
+ *
+ */
+function userpoints_flag_flag($action, $flag, $content_id, $account) { 
+  $author_points = 0;
+  $author_uid = 0;
+  if ($flag->content_type == 'node') {
+    $author_points = variable_get('userpoints_flag_author_node_vote', 0);
+    $author_uid = db_select('node', 'n')
+      ->fields('n', array('uid'))
+      ->condition('n.nid', $content_id)
+      ->execute()
+      ->fetchField();
+  }
+  elseif ($flag->content_type == 'comment') {
+    $author_points = variable_get('userpoints_flag_author_comment_vote', 0);
+    $author_uid = db_select('comment', 'c')
+      ->fields('c', array('uid'))
+      ->condition('c.cid', $content_id)
+      ->execute()
+      ->fetchField();
+  }
+
+  // The author doesn't get points for flagging their own content
+  if (TRUE || $author_uid != $account->uid) {
+    $threshold = variable_get('userpoints_flag_daily_threshold', 0);
+	  if (!$threshold || _userpoints_flag_within_threshold($account->uid, $threshold)) {
+      // Assign points to the flagger
+      $points = variable_get('userpoints_flag_vote', 1);
+      $params = array(
+        'uid' => $account->uid,
+        'points' => $action == 'flag' ? $points : -1 * $points,
+        'moderate' => variable_get('userpoints_flag_moderation', 0),
+        'entity_id' => $content_id,
+        'entity_type' => $flag->content_type,
+        'operation' => 'userpoints_flag',
+        'description' => t('Flag cast: !content_type !content_id.',array('!content_type'=> $flag->content_type, '!content_id'=> $content_id)),
+      );
+		  userpoints_userpointsapi($params);
+
+      // Author doesn't get points when anonymous users flag their content
+		  if ($author_points && $author_uid) {
+        $params['uid'] = $author_uid;
+        $params['points'] = $action == 'flag' ? $author_points : -1 * $author_points;
+        $params['operation'] = 'userpoints_flag_author';
+		    $params['description'] = t('Flag author cast: !content_type !content_id.',array('!content_type'=> $flag->content_type, '!content_id'=> $content_id));
+        userpoints_userpointsapi($params);    
+		  }
+	  }
+  }
+}
+
+function _userpoints_flag_within_threshold($uid, $threshold) {
+  $count_query = db_select('flag_content', 'f');
+  $count_query->addExpression('COUNT(*)');
+  $count_query->condition('f.uid', $uid)
+    ->condition('f.timestamp', time() - 86400, '>');
+  $count = $count_query->execute()->fetchField();
+  return $threshold > $count ? FALSE : TRUE;
+}

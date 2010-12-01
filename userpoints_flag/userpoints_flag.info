@@ -1,0 +1,9 @@
+; $Id$
+name = User Points Flag
+description = Integrates User Points with flag API.
+package = Userpoints
+core = 7.x
+dependencies[] = userpoints
+dependencies[] = flag
+files[] = userpoints_flag.install
+files[] = userpoints_flag.module
